@@ -8,18 +8,19 @@ float_type = gpflow.settings.dtypes.float_type
 
 
 class SMGPR(MGPR):
-    def __init__(self, X, Y, num_induced_points, name=None):
+    def __init__(self, indices, num_induced_points, name=None):
         gpflow.Parameterized.__init__(self, name)
         self.num_induced_points = num_induced_points
-        MGPR.__init__(self, X, Y, name)
+        MGPR.__init__(self, indices, name)
 
     def create_models(self, X, Y):
         self.models = []
+        X_, Y_ = self.trigAug(X, Y)
         for i in range(self.num_outputs):
             kern = gpflow.kernels.RBF(input_dim=X.shape[1], ARD=True)
             Z = np.random.rand(self.num_induced_points, self.num_dims)
             #TODO: Maybe fix noise for better conditioning
-            self.models.append(gpflow.models.SGPR(X, Y[:, i:i+1], kern, Z=Z))
+            self.models.append(gpflow.models.SGPR(X_, Y_[:, i:i+1], kern, Z=Z))
             self.models[i].clear(); self.models[i].compile()
     
     def calculate_factorizations(self):

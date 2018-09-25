@@ -12,34 +12,44 @@ float_type = gpflow.settings.dtypes.float_type
 
 
 class PILCO(gpflow.models.Model):
-    def __init__(self, X, Y, num_induced_points=None, horizon=30, controller=None,
+    def __init__(self, indices, num_induced_points=None, horizon=30, controller=None,
                 reward=None, m_init=None, S_init=None, name=None):
         super(PILCO, self).__init__(name)
+        
+        self.dyno = indices["dyno"]
+        self.angi = indices["angi"]
+        self.dyni = indices["dyni"]
+        self.poli = indices["poli"]
+        self.difi = indices["difi"]
+        self.udim = indices["udim"]
+        
         if not num_induced_points:
-            self.mgpr = MGPR(X, Y)
+            self.mgpr = MGPR(indices)
         else:
-            self.mgpr = SMGPR(X, Y, num_induced_points)
-        self.state_dim = Y.shape[1]
-        self.control_dim = X.shape[1] - Y.shape[1]
+            self.mgpr = SMGPR(indices, num_induced_points)
         self.horizon = horizon
 
         if controller is None:
-            self.controller = controllers.LinearController(self.state_dim, self.control_dim)
+            self.controller = controllers.LinearController(self.poli.shape[0], 
+                                                           self.udim)
         else:
             self.controller = controller
 
         if reward is None:
-            self.reward = rewards.ExponentialReward(self.state_dim)
+            self.reward = rewards.ExponentialReward(self.dyno.shape[0])
         else:
             self.reward = reward
         
-        if m_init is None or S_init is None:
+        if m_init is None:
             # If the user has not provided an initial state for the rollouts,
-            # then define it as the first state in the dataset.
-            self.m_init = X[0:1, 0:self.state_dim]
-            self.S_init = np.diag(np.ones(self.state_dim) * 0.1)
+            # then use a zero array.
+            self.m_init = np.zeros(self.dyno.shape[0])
         else:
             self.m_init = m_init
+            
+        if S_init is None:
+            self.S_init = np.diag(np.ones(self.dyno.shape[0]) * 0.1)
+        else:
             self.S_init = S_init
 
     @gpflow.name_scope('likelihood')
@@ -82,7 +92,9 @@ class PILCO(gpflow.models.Model):
 
     @gpflow.autoflow((float_type,[None, None]))
     def compute_action(self, x_m):
-        return self.controller.compute_action(x_m, tf.zeros([self.state_dim, self.state_dim], float_type))[0]
+        return self.controller.compute_action(
+                x_m, tf.zeros([self.poli.shape[0], self.poli.shape[0]], 
+                              float_type))[0]
 
     def predict(self, m_x, s_x, n):
         loop_vars = [
@@ -119,5 +131,6 @@ class PILCO(gpflow.models.Model):
         S_x = S_dx + s_x + s1@C_dx + tf.matmul(C_dx, s1, transpose_a=True, transpose_b=True)
 
         # While-loop requires the shapes of the outputs to be fixed
-        M_x.set_shape([1, self.state_dim]); S_x.set_shape([self.state_dim, self.state_dim])
+        M_x.set_shape([1, self.dyno.shape[0]])
+        S_x.set_shape([self.dyno.shape[0], self.dyno.shape[0]])
         return M_x, S_x

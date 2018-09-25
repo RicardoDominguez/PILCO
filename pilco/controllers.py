@@ -69,21 +69,18 @@ class RbfController(MGPR):
     See Deisenroth et al 2015: Gaussian Processes for Data-Efficient Learning in Robotics and Control
     Section 5.3.2.
     '''
-    def __init__(self, state_dim, control_dim, num_basis_functions, max_action=None):
-        MGPR.__init__(self,
-            np.random.randn(num_basis_functions, state_dim),
-            0.1*np.random.randn(num_basis_functions, control_dim)
-        )
-        for model in self.models:
-            model.kern.variance = 1.0
-            model.kern.variance.trainable = False
-            self.max_action = max_action
+    def __init__(self, indices, num_basis_functions, max_action=None):
+        MGPR.__init__(self, indices)
+        self.max_action = max_action
 
     def create_models(self, X, Y):
         self.models = gpflow.params.ParamList([])
         for i in range(self.num_outputs):
             kern = gpflow.kernels.RBF(input_dim=X.shape[1], ARD=True)
             self.models.append(FakeGPR(X, Y[:, i:i+1], kern))
+        for model in self.models:
+            model.kern.variance = 1.0
+            model.kern.variance.trainable = False
 
     def compute_action(self, m, s, squash=True):
         '''

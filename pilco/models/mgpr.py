@@ -1,30 +1,51 @@
 import tensorflow as tf
+import numpy as np
 import gpflow
 float_type = gpflow.settings.dtypes.float_type
 
 
 class MGPR(gpflow.Parameterized):
-    def __init__(self, X, Y, name=None):
+    def __init__(self, indices, name=None):
         super(MGPR, self).__init__(name)
+        
+        self.dyno = indices["dyno"]
+        self.angi = indices["angi"]
+        self.dyni = indices["dyni"]
+        self.poli = indices["poli"]
+        self.difi = indices["difi"]
+        self.udim = indices["udim"]
 
-        self.num_outputs = Y.shape[1]
-        self.num_dims = X.shape[1]
-        self.num_datapoints = X.shape[0]
-
-        self.create_models(X, Y)
+        self.num_outputs = self.dyno.shape[0]
+        self.num_dims = self.dyni.shape[0]
 
     def create_models(self, X, Y):
         self.models = []
+        X_, Y_ = self.trigAug(X, Y)
         for i in range(self.num_outputs):
             kern = gpflow.kernels.RBF(input_dim=X.shape[1], ARD=True)
             #TODO: Maybe fix noise for better conditioning
-            self.models.append(gpflow.models.GPR(X, Y[:, i:i+1], kern))
+            self.models.append(gpflow.models.GPR(X_, Y_[:, i:i+1], kern))
             self.models[i].clear(); self.models[i].compile()
-
+    
+    def trigAug(self, X, Y):
+        angles = X[:, self.angi]
+        sines = np.sin(angles)
+        cosines = np.cos(angles)
+        sincos = np.empty(X.shape[0], self.angi.shape[0]*2)
+        for i in range(self.angi.shape[0]):
+            sincos[:, i*2:i*2+1] = np.hstack((sines[:, i], cosines[:, i]))        
+        Xaug = np.hstack((X[:, self.dyno], sincos, X[:, :-self.udim]))
+        
+        Yd = np.copy(Y)
+        Yd[:, self.difi] -= X[:, self.difi]
+        
+        return Xaug[:, self.dyni], Yd[:, self.dyno]
+                
     def set_XY(self, X, Y):
+        X_, Y_ = self.trigAug(X, Y)
         for i in range(len(self.models)):
-            self.models[i].X = X
-            self.models[i].Y = Y[:, i:i+1]
+            self.models[i].X = X_
+            self.models[i].Y = Y_[:, i:i+1]
 
     def optimize(self):
         optimizer = gpflow.train.ScipyOptimizer(options={'maxfun': 500})
